@@ -55,7 +55,26 @@ def get_batch(split:str):
 
     return x,y
 
-class BigramModel(nn.Module):
+class Head(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+
+class Multihead(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+
+class FForward(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+
+class Transformer_decoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        pass
+class GPT(nn.Module):
     def __init__(self):
         super().__init__()
         self.embedding_table = nn.Embedding(nvocab,n_embed)
@@ -63,10 +82,13 @@ class BigramModel(nn.Module):
         self.linear1 = nn.Linear(n_embed,nvocab)
 
     def forward(self,idx:torch.Tensor,target:torch.Tensor=None):
-        embeddings = self.embedding_table(idx) 
-        pos_embed = self.positional_embedding(idx)
-        x = embeddings + pos_embed
+        
+        B,T, = idx.shape
+        tok_embed = self.embedding_table(idx) 
+        pos_embed = self.positional_embedding(torch.arange(T))
+        x = tok_embed + pos_embed
         logits = self.linear1(x)
+
         if target == None:
             loss = None
         else:
@@ -86,7 +108,7 @@ class BigramModel(nn.Module):
         return idx
 
 
-model = BigramModel(n_vocab)
+model = GPT()
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
 #Training
