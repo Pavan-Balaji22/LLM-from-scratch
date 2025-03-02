@@ -55,7 +55,52 @@ def get_batch(split:str):
 
     return x,y
 
-class BigramModel(nn.Module):
+class Head(nn.Module):
+    def __init__(self,head_size):
+        super().__init__()
+        self.key = nn.Linear(n_embed,head_size ,bias = False)
+        self.query = nn.Linear(n_embed,head_size ,bias = False)
+        self.value = nn.Linear(n_embed,head_size ,bias = False)
+    
+    def forward(self,x):
+        kx = self.key(x) #B,T, n_head
+        qx = self.query(x) #B,T, n_head
+        self.wei = kx @ qx.transpose(-2,-1) # transpose last 2 dimension
+        self.wei = self.wei.tril()
+        self.wei= self.wei.masked_fill(self.wei==0,float('-inf'))
+        self.wei = torch.softmax(self.wei,dim=1)
+        out = self.wei @ self.value(x)
+
+        return out
+
+class Multihead(nn.Module):
+    def __init__(self,nheads):
+        super().__init__()
+        self.headsize = n_embed // nheads
+        self.Multihead = nn.ModuleList([Head(self.headsize) for _ in range(nheads)])
+    
+    def forward(self,x):
+        for head in self.Multihead:
+            out = head(x)
+        return out
+class FForward(nn.Module):
+    def __init__(self,input,output):
+        super().__init__()
+        self.linearModel =  nn.Sequential(nn.Linear(input,output),nn.ReLU())
+
+    def forward(self,x):
+        return self.linearModel(x)
+class TransformerDecoderBlock(nn.Module):
+    def __init__(self,nheads):
+        super().__init__()
+        self.attention = Multihead(nheads)
+        self.ffnn = FForward(n_embed,nvocab) 
+    def forward(self,x):
+        out = self.attention(x)
+        out = self.ffnn(out)
+        return out
+    
+class GPT(nn.Module):
     def __init__(self):
         super().__init__()
         self.embedding_table = nn.Embedding(nvocab,n_embed)
@@ -63,10 +108,13 @@ class BigramModel(nn.Module):
         self.linear1 = nn.Linear(n_embed,nvocab)
 
     def forward(self,idx:torch.Tensor,target:torch.Tensor=None):
-        embeddings = self.embedding_table(idx) 
-        pos_embed = self.positional_embedding(idx)
-        x = embeddings + pos_embed
+        
+        B,T, = idx.shape
+        tok_embed = self.embedding_table(idx) 
+        pos_embed = self.positional_embedding(torch.arange(T))
+        x = tok_embed + pos_embed
         logits = self.linear1(x)
+
         if target == None:
             loss = None
         else:
@@ -86,7 +134,7 @@ class BigramModel(nn.Module):
         return idx
 
 
-model = BigramModel(n_vocab)
+model = GPT()
 optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
 
 #Training
