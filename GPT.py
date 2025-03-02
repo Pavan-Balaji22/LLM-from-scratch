@@ -56,24 +56,50 @@ def get_batch(split:str):
     return x,y
 
 class Head(nn.Module):
-    def __init__(self):
+    def __init__(self,head_size):
         super().__init__()
-        pass
+        self.key = nn.Linear(n_embed,head_size ,bias = False)
+        self.query = nn.Linear(n_embed,head_size ,bias = False)
+        self.value = nn.Linear(n_embed,head_size ,bias = False)
+    
+    def forward(self,x):
+        kx = self.key(x) #B,T, n_head
+        qx = self.query(x) #B,T, n_head
+        self.wei = kx @ qx.transpose(-2,-1) # transpose last 2 dimension
+        self.wei = self.wei.tril()
+        self.wei= self.wei.masked_fill(self.wei==0,float('-inf'))
+        self.wei = torch.softmax(self.wei,dim=1)
+        out = self.wei @ self.value(x)
+
+        return out
 
 class Multihead(nn.Module):
-    def __init__(self):
+    def __init__(self,nheads):
         super().__init__()
-        pass
-
+        self.headsize = n_embed // nheads
+        self.Multihead = nn.ModuleList([Head(self.headsize) for _ in range(nheads)])
+    
+    def forward(self,x):
+        for head in self.Multihead:
+            out = head(x)
+        return out
 class FForward(nn.Module):
-    def __init__(self):
+    def __init__(self,input,output):
         super().__init__()
-        pass
+        self.linearModel =  nn.Sequential(nn.Linear(input,output),nn.ReLU())
 
-class Transformer_decoder(nn.Module):
-    def __init__(self):
+    def forward(self,x):
+        return self.linearModel(x)
+class TransformerDecoderBlock(nn.Module):
+    def __init__(self,nheads):
         super().__init__()
-        pass
+        self.attention = Multihead(nheads)
+        self.ffnn = FForward(n_embed,nvocab) 
+    def forward(self,x):
+        out = self.attention(x)
+        out = self.ffnn(out)
+        return out
+    
 class GPT(nn.Module):
     def __init__(self):
         super().__init__()
