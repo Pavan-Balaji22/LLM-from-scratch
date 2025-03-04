@@ -6,15 +6,17 @@ import mlflow as mlflow
 
 # Hyper Parameters
 batch_size = 64
-block_size = 128
+block_size = 256
 lrsloss = []
 lossi = []
 lr = 1e-3
 max_iter = 5000
 step_iter = 500
 eval_iter = 200
-n_embed = 256
+n_embed = 512
 n_heads = 32
+n_layer = 8
+dropout = 0.2
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 torch.manual_seed(1337)
@@ -65,6 +67,7 @@ class Head(nn.Module):
         self.query = nn.Linear(n_embed,head_size ,bias = False)
         self.value = nn.Linear(n_embed,head_size ,bias = False)
         self.register_buffer("tril",torch.tril(torch.ones(block_size,block_size)))
+        self.dropout = nn.Dropout(dropout)
     
     def forward(self,x):
         B,T,C = x.shape
@@ -74,6 +77,7 @@ class Head(nn.Module):
         # self.wei = self.wei.tril()
         self.wei= self.wei.masked_fill(self.tril[:T,:T]==0,float('-inf'))
         self.wei = F.softmax(self.wei,dim=-1)
+        self.wei = self.dropout(self.wei)
         v = self.value(x)
         out = self.wei @  v 
 
@@ -84,15 +88,21 @@ class Multihead(nn.Module):
         super().__init__()
         headsize = n_embed//n_heads
         self.Multihead = nn.ModuleList([Head(headsize) for _ in range(n_heads)])
+        self.proj = nn.Linear(n_embed,n_embed)
+        self.dropout = nn.Dropout(dropout)
     
     def forward(self,x):
         out = torch.cat([h(x) for h in self.Multihead], dim=-1)
+        out = self.dropout(self.proj(out))
         return out
 class FForward(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linearModel =  nn.Sequential(nn.Linear(n_embed,n_embed),
-                                          nn.ReLU())
+        self.linearModel =  nn.Sequential(nn.Linear(n_embed,4 *n_embed),
+                                          nn.ReLU(),
+                                          nn.Linear(4 * n_embed,n_embed),
+                                          nn.ReLU(),
+                                          nn.Dropout(dropout))
 
     def forward(self,x):
         return self.linearModel(x)
@@ -100,10 +110,12 @@ class TransformerDecoderBlock(nn.Module):
     def __init__(self):
         super().__init__()
         self.attention = Multihead()
-        self.ffnn = FForward() 
+        self.ffnn = FForward()
+        self.layern1 = nn.LayerNorm(n_embed)
+        self.layern2 = nn.LayerNorm(n_embed)
     def forward(self,x):
-        out = self.attention(x)
-        out = self.ffnn(out)
+        x = x + self.attention(self.layern1(x))
+        out = x + self.ffnn(self.layern2(x))
         return out
     
 class GPT(nn.Module):
@@ -112,7 +124,8 @@ class GPT(nn.Module):
         # print(nvocab,n_embed,block_size)
         self.embedding_table = nn.Embedding(nvocab,n_embed)
         self.positional_embedding = nn.Embedding(block_size,n_embed)
-        self.transformerdecode = TransformerDecoderBlock()
+        self.transformerdecode = nn.Sequential(*[TransformerDecoderBlock() for x in range(n_layer)])
+        self.layern1 = nn.LayerNorm(n_embed)
         self.linear1 = nn.Linear(n_embed,nvocab)
     
     def forward(self,idx,target=None):
@@ -122,7 +135,7 @@ class GPT(nn.Module):
         pos_embed = self.positional_embedding(torch.arange(T,device=device))
         x = tok_embed + pos_embed
         x = self.transformerdecode(x)
-        # print(x.shape)
+        x = self.layern1(x)
         logits = self.linear1(x)
 
         if target is None:
